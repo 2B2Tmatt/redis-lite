@@ -29,20 +29,15 @@ impl Store {
     pub fn apply(&mut self, cmd: Command) -> String {
         match cmd {
             Command::Get(k) => {
-                let data = match self.map.get(&k).cloned() {
-                    Some(data) => data,
+                let data = match self.map.get(&k) {
+                    Some(data) => data.clone(),
                     None => return String::from("NULL"),
                 };
-                match data.deadline {
-                    Some(v) => {
-                        if Instant::now() > v {
-                            return data.value;
-                        } else {
-                            self.map.remove(&k);
-                            return String::from("NULL");
-                        }
-                    }
-                    None => return data.value,
+                let expired = self.purge_if_expired(&k, Instant::now());
+                if expired {
+                    return String::from("NULL");
+                } else {
+                    return String::from(data.value);
                 }
             }
             Command::Set(k, v) => {
@@ -66,6 +61,10 @@ impl Store {
             Command::Exists(k) => {
                 let exists = self.map.contains_key(&k);
                 if exists {
+                    let expired = self.purge_if_expired(&k, Instant::now());
+                    if expired {
+                        return String::from("0");
+                    }
                     return String::from("1");
                 } else {
                     return String::from("0");
@@ -76,6 +75,28 @@ impl Store {
                 String::from("not yet")
             }
             Command::Expire(k, s) => String::from("not yet"),
+        }
+    }
+
+    fn purge_if_expired(&mut self, key: &str, now: Instant) -> bool {
+        let data = match self.map.get(key) {
+            Some(data) => data.clone(),
+            None => {
+                return false;
+            }
+        };
+        match data.deadline {
+            Some(d) => {
+                if d > now {
+                    return false;
+                } else {
+                    self.map.remove(key);
+                    return true;
+                }
+            }
+            None => {
+                return false;
+            }
         }
     }
 }
