@@ -23,6 +23,10 @@ fn main() {
         };
 
         let res = store.apply(cmd);
+        if res == "QUIT" {
+            println!("quitting..");
+            break;
+        }
         println!("{res}")
     }
 }

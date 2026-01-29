@@ -13,6 +13,12 @@ pub fn parse_line(line: &str) -> Result<Command, String> {
             let v = parts[2..].join(" ");
             Ok(Command::Set(k, v))
         }
+        "SETEX" if parts.len() == 4 => {
+            let k = parts[1].to_string();
+            let v = parts[2].to_string();
+            let s = parts[3].parse::<i32>().map_err(|e| e.to_string())?;
+            Ok(Command::Setex(k, v, s))
+        }
         "DEL" if parts.len() == 2 => Ok(Command::Del(parts[1].to_string())),
         "EXISTS" if parts.len() == 2 => Ok(Command::Exists(parts[1].to_string())),
         "KEYS" if parts.len() == 2 => Ok(Command::Keys(parts[1].to_string())),
@@ -21,6 +27,9 @@ pub fn parse_line(line: &str) -> Result<Command, String> {
             let s = parts[2].parse::<i32>().map_err(|e| e.to_string())?;
             Ok(Command::Expire(k, s))
         }
+        "TTL" if parts.len() == 2 => Ok(Command::Ttl(parts[1].to_string())),
+        "PING" => Ok(Command::Ping()),
+        "QUIT" | "EXIT" => Ok(Command::Quit()),
         _ => Err(String::from(
             "usage: GET key | SET key value | DEL key | EXPIRE key seconds",
         )),

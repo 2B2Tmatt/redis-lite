@@ -1,13 +1,17 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub enum Command {
     Get(String),
     Set(String, String),
+    Setex(String, String, i32),
     Del(String),
     Exists(String),
     Keys(String),
     Expire(String, i32),
+    Ttl(String),
+    Ping(),
+    Quit(),
 }
 
 #[derive(Clone, Debug)]
@@ -35,9 +39,9 @@ impl Store {
                 };
                 let expired = self.purge_if_expired(&k, Instant::now());
                 if expired {
-                    return String::from("NULL");
+                    String::from("NULL")
                 } else {
-                    return String::from(data.value);
+                    data.value
                 }
             }
             Command::Set(k, v) => {
@@ -50,12 +54,25 @@ impl Store {
                 );
                 String::from("OK")
             }
+            Command::Setex(k, v, s) => {
+                if s < 0 {
+                    return String::from("(error) ERR invalid expire time in setex");
+                }
+                self.map.insert(
+                    k,
+                    Data {
+                        value: (v),
+                        deadline: Some(Instant::now() + Duration::new(s as u64, 0)),
+                    },
+                );
+                String::from("OK")
+            }
             Command::Del(k) => {
                 let removed = self.map.remove(&k).is_some();
                 if removed {
-                    return String::from("1");
+                    String::from("1")
                 } else {
-                    return String::from("0");
+                    String::from("0")
                 }
             }
             Command::Exists(k) => {
@@ -65,16 +82,58 @@ impl Store {
                     if expired {
                         return String::from("0");
                     }
-                    return String::from("1");
+                    String::from("1")
                 } else {
-                    return String::from("0");
+                    String::from("0")
                 }
             }
             Command::Keys(k) => {
-                println!("not implemented yet");
+                println!("not implemented yet: {k}");
                 String::from("not yet")
             }
-            Command::Expire(k, s) => String::from("not yet"),
+            Command::Expire(k, s) => {
+                let data = match self.map.get_mut(&k) {
+                    Some(data) => data,
+                    None => {
+                        return String::from("0");
+                    }
+                };
+                data.deadline = Some(Instant::now() + Duration::new(s as u64, 0));
+                let expired = self.purge_if_expired(&k, Instant::now());
+                if expired {
+                    return String::from("0");
+                }
+                String::from("1")
+            }
+            Command::Ping() => String::from("PONG"),
+            Command::Quit() => String::from("QUIT"),
+            Command::Ttl(k) => {
+                let data = match self.map.get(&k) {
+                    Some(data) => data.clone(),
+                    None => {
+                        return String::from("2");
+                    }
+                };
+                let deadline = match data.deadline {
+                    Some(d) => d,
+                    None => {
+                        return String::from("-1");
+                    }
+                };
+                let now = Instant::now();
+                let expired = self.purge_if_expired(&k, now);
+                if expired {
+                    return String::from("-2");
+                }
+                let time_from_expire = match deadline.checked_duration_since(now) {
+                    Some(t) => t,
+                    None => {
+                        return String::from("-2");
+                    }
+                };
+
+                time_from_expire.as_secs().to_string()
+            }
         }
     }
 
@@ -88,15 +147,13 @@ impl Store {
         match data.deadline {
             Some(d) => {
                 if d > now {
-                    return false;
+                    false
                 } else {
                     self.map.remove(key);
-                    return true;
+                    true
                 }
             }
-            None => {
-                return false;
-            }
+            None => false,
         }
     }
 }
