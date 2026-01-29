@@ -17,7 +17,7 @@ pub enum Command {
 #[derive(Clone, Debug)]
 struct Data {
     value: String,
-    deadline: Option<Instant>,
+    expiration: Option<Instant>,
 }
 pub struct Store {
     map: HashMap<String, Data>,
@@ -33,23 +33,19 @@ impl Store {
     pub fn apply(&mut self, cmd: Command) -> String {
         match cmd {
             Command::Get(k) => {
-                let data = match self.map.get(&k) {
-                    Some(data) => data.clone(),
+                let data = match self.get_if_alive(&k) {
+                    Some(d) => d,
                     None => return String::from("NULL"),
                 };
-                let expired = self.purge_if_expired(&k, Instant::now());
-                if expired {
-                    String::from("NULL")
-                } else {
-                    data.value
-                }
+
+                data.value
             }
             Command::Set(k, v) => {
                 self.map.insert(
                     k,
                     Data {
                         value: (v),
-                        deadline: None,
+                        expiration: None,
                     },
                 );
                 String::from("OK")
@@ -62,7 +58,7 @@ impl Store {
                     k,
                     Data {
                         value: (v),
-                        deadline: Some(Instant::now() + Duration::new(s as u64, 0)),
+                        expiration: Some(Instant::now() + Duration::new(s as u64, 0)),
                     },
                 );
                 String::from("OK")
@@ -75,57 +71,42 @@ impl Store {
                     String::from("0")
                 }
             }
-            Command::Exists(k) => {
-                let exists = self.map.contains_key(&k);
-                if exists {
-                    let expired = self.purge_if_expired(&k, Instant::now());
-                    if expired {
-                        return String::from("0");
-                    }
-                    String::from("1")
-                } else {
-                    String::from("0")
-                }
-            }
+            Command::Exists(k) => match self.get_if_alive(&k) {
+                Some(_) => String::from("1"),
+                None => String::from("0"),
+            },
             Command::Keys(k) => {
                 println!("not implemented yet: {k}");
                 String::from("not yet")
             }
             Command::Expire(k, s) => {
-                let data = match self.map.get_mut(&k) {
-                    Some(data) => data,
+                if s <= 0 {
+                    self.map.remove(&k);
+                    return String::from("0");
+                }
+                let data = match self.get_if_alive_mut(&k) {
+                    Some(d) => d,
                     None => {
                         return String::from("0");
                     }
                 };
-                data.deadline = Some(Instant::now() + Duration::new(s as u64, 0));
-                let expired = self.purge_if_expired(&k, Instant::now());
-                if expired {
-                    return String::from("0");
-                }
+                data.expiration = Some(Instant::now() + Duration::new(s as u64, 0));
                 String::from("1")
             }
             Command::Ping() => String::from("PONG"),
             Command::Quit() => String::from("QUIT"),
             Command::Ttl(k) => {
-                let data = match self.map.get(&k) {
-                    Some(data) => data.clone(),
-                    None => {
-                        return String::from("2");
-                    }
-                };
-                let deadline = match data.deadline {
+                let data = match self.get_if_alive_mut(&k) {
                     Some(d) => d,
+                    None => return String::from("-2"),
+                };
+                let exp = match data.expiration {
+                    Some(e) => e,
                     None => {
                         return String::from("-1");
                     }
                 };
-                let now = Instant::now();
-                let expired = self.purge_if_expired(&k, now);
-                if expired {
-                    return String::from("-2");
-                }
-                let time_from_expire = match deadline.checked_duration_since(now) {
+                let time_from_expire = match exp.checked_duration_since(Instant::now()) {
                     Some(t) => t,
                     None => {
                         return String::from("-2");
@@ -137,23 +118,44 @@ impl Store {
         }
     }
 
-    fn purge_if_expired(&mut self, key: &str, now: Instant) -> bool {
+    // read only
+    fn get_if_alive(&mut self, key: &str) -> Option<Data> {
         let data = match self.map.get(key) {
             Some(data) => data.clone(),
             None => {
-                return false;
+                return None;
             }
         };
-        match data.deadline {
+        match data.expiration {
             Some(d) => {
-                if d > now {
-                    false
+                if d > Instant::now() {
+                    Some(data)
                 } else {
                     self.map.remove(key);
-                    true
+                    None
                 }
             }
-            None => false,
+            None => Some(data),
+        }
+    }
+
+    fn get_if_alive_mut(&mut self, key: &str) -> Option<&mut Data> {
+        use std::collections::hash_map::Entry;
+        let expired = match self.map.entry(key.to_string()) {
+            Entry::Occupied(entry) => match entry.get().expiration {
+                Some(exp) => exp <= Instant::now(),
+                None => false,
+            },
+            Entry::Vacant(_) => {
+                return None;
+            }
+        };
+
+        if expired {
+            self.map.remove(key);
+            None
+        } else {
+            self.map.get_mut(key)
         }
     }
 }

@@ -24,7 +24,7 @@ fn main() {
 
         let res = store.apply(cmd);
         if res == "QUIT" {
-            println!("quitting..");
+            println!("OK");
             break;
         }
         println!("{res}")

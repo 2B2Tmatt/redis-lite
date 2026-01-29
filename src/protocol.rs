@@ -19,7 +19,7 @@ pub fn parse_line(line: &str) -> Result<Command, String> {
             let s = parts[3].parse::<i32>().map_err(|e| e.to_string())?;
             Ok(Command::Setex(k, v, s))
         }
-        "DEL" if parts.len() == 2 => Ok(Command::Del(parts[1].to_string())),
+        "DEL" | "DELETE" if parts.len() == 2 => Ok(Command::Del(parts[1].to_string())),
         "EXISTS" if parts.len() == 2 => Ok(Command::Exists(parts[1].to_string())),
         "KEYS" if parts.len() == 2 => Ok(Command::Keys(parts[1].to_string())),
         "EXPIRE" if parts.len() == 3 => {
