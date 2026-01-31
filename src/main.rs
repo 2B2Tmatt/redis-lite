@@ -1,3 +1,4 @@
+use std::env;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,10 +9,15 @@ use crate::{protocol::parse_line, store::Response, store::Store};
 mod protocol;
 mod store;
 fn main() {
-    let store = Store::new();
-    let store = Arc::new(Mutex::new(store));
-    const ADDR: &str = "127.0.0.1:8080";
-    start_server(ADDR, store);
+    let args: Vec<String> = env::args().skip(1).collect();
+    let mut addr = "127.0.0.1:".to_string();
+    if args.len() >= 1 {
+        addr.push_str(&args[0]);
+    } else {
+        addr.push_str("6379");
+    }
+    let store = Arc::new(Mutex::new(Store::new()));
+    start_server(&addr, store);
 }
 fn start_server(addr: &str, store: Arc<Mutex<Store>>) {
     let listener = TcpListener::bind(addr).expect("Failed to bind to address");
