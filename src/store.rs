@@ -23,6 +23,15 @@ pub struct Store {
     map: HashMap<String, Data>,
 }
 
+pub enum Response {
+    Simple(String),
+    Bulk(String),
+    Integer(i32),
+    List(Vec<String>),
+    Quit(),
+    Error(String),
+}
+
 impl Store {
     pub fn new() -> Self {
         Self {
@@ -30,15 +39,15 @@ impl Store {
         }
     }
 
-    pub fn apply(&mut self, cmd: Command) -> String {
+    pub fn apply(&mut self, cmd: Command) -> Response {
         match cmd {
             Command::Get(k) => {
                 let data = match self.get_if_alive(&k) {
                     Some(d) => d,
-                    None => return String::from("NULL"),
+                    None => return Response::Simple("NULL".to_string()),
                 };
 
-                data.value
+                Response::Bulk(data.value)
             }
             Command::Set(k, v) => {
                 self.map.insert(
@@ -48,11 +57,11 @@ impl Store {
                         expiration: None,
                     },
                 );
-                String::from("OK")
+                Response::Simple("OK".to_string())
             }
             Command::Setex(k, v, s) => {
                 if s < 0 {
-                    return String::from("(error) ERR invalid expire time in setex");
+                    return Response::Error("(error) ERR invalid expire time in setex".to_string());
                 }
                 self.map.insert(
                     k,
@@ -61,59 +70,64 @@ impl Store {
                         expiration: Some(Instant::now() + Duration::new(s as u64, 0)),
                     },
                 );
-                String::from("OK")
+                Response::Simple("OK".to_string())
             }
             Command::Del(k) => {
                 let removed = self.map.remove(&k).is_some();
                 if removed {
-                    String::from("1")
+                    Response::Integer(1)
                 } else {
-                    String::from("0")
+                    Response::Integer(0)
                 }
             }
             Command::Exists(k) => match self.get_if_alive(&k) {
-                Some(_) => String::from("1"),
-                None => String::from("0"),
+                Some(_) => Response::Integer(1),
+                None => Response::Integer(0),
             },
             Command::Keys(k) => {
-                println!("not implemented yet: {k}");
-                String::from("not yet")
+                let mut keys: Vec<String> = Vec::new();
+                for key in self.map.keys() {
+                    if Store::matches(&k, key) {
+                        keys.push(key.clone());
+                    }
+                }
+                Response::List(keys)
             }
             Command::Expire(k, s) => {
                 if s <= 0 {
                     self.map.remove(&k);
-                    return String::from("0");
+                    return Response::Integer(0);
                 }
                 let data = match self.get_if_alive_mut(&k) {
                     Some(d) => d,
                     None => {
-                        return String::from("0");
+                        return Response::Integer(0);
                     }
                 };
                 data.expiration = Some(Instant::now() + Duration::new(s as u64, 0));
-                String::from("1")
+                Response::Integer(1)
             }
-            Command::Ping() => String::from("PONG"),
-            Command::Quit() => String::from("QUIT"),
+            Command::Ping() => Response::Simple("PONG".to_string()),
+            Command::Quit() => Response::Quit(),
             Command::Ttl(k) => {
                 let data = match self.get_if_alive_mut(&k) {
                     Some(d) => d,
-                    None => return String::from("-2"),
+                    None => return Response::Integer(-2),
                 };
                 let exp = match data.expiration {
                     Some(e) => e,
                     None => {
-                        return String::from("-1");
+                        return Response::Integer(-1);
                     }
                 };
                 let time_from_expire = match exp.checked_duration_since(Instant::now()) {
                     Some(t) => t,
                     None => {
-                        return String::from("-2");
+                        return Response::Integer(-2);
                     }
                 };
 
-                time_from_expire.as_secs().to_string()
+                Response::Bulk(time_from_expire.as_secs().to_string())
             }
         }
     }
@@ -157,5 +171,34 @@ impl Store {
         } else {
             self.map.get_mut(key)
         }
+    }
+    fn matches(pattern: &str, key: &str) -> bool {
+        if pattern == "*" {
+            return true;
+        }
+
+        let parts: Vec<&str> = pattern.split('*').collect();
+
+        if parts.len() == 1 {
+            return key == pattern;
+        }
+
+        if !key.starts_with(parts[0]) {
+            return false;
+        }
+        if !key.ends_with(parts[parts.len() - 1]) {
+            return false;
+        }
+
+        let mut pos = parts[0].len();
+        for part in &parts[1..parts.len() - 1] {
+            if let Some(found) = key[pos..].find(part) {
+                pos += found + part.len();
+            } else {
+                return false;
+            }
+        }
+
+        true
     }
 }

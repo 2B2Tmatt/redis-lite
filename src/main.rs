@@ -1,6 +1,6 @@
 use std::io::{self, Write};
 
-use crate::{protocol::parse_line, store::Store};
+use crate::{protocol::parse_line, store::Response, store::Store};
 mod protocol;
 mod store;
 fn main() {
@@ -23,10 +23,28 @@ fn main() {
         };
 
         let res = store.apply(cmd);
-        if res == "QUIT" {
-            println!("OK");
-            break;
+        match res {
+            Response::Simple(s) => {
+                println!("{s}");
+            }
+            Response::Integer(i) => {
+                println!("{i}")
+            }
+            Response::Error(e) => {
+                println!("error: {e}")
+            }
+            Response::Bulk(b) => {
+                println!("{b}")
+            }
+            Response::List(l) => {
+                for (i, e) in l.iter().enumerate() {
+                    println!("{i}) {e}")
+                }
+            }
+            Response::Quit() => {
+                println!("OK");
+                break;
+            }
         }
-        println!("{res}")
     }
 }
